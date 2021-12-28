@@ -13,10 +13,12 @@ Instalación de librerias
 #install.packages("dplyr")
 #install.packages("tidyverse")
 #install.packages("caret")
+#install.packages('fastDummies')
 library(readr)
 library(dplyr)
 library(tidyverse)
 library(caret)
+library(fastDummies)
 
 ```
 
@@ -58,20 +60,21 @@ tiktok_data
 
 
 ```
-
+Normalizamos los valores de popularidad (revisar):
 ```{r}
 
 tiktok_data <- tiktok_data %>% mutate(tempo=round(tempo, digits = 0))
 tiktok_data$popularity = tiktok_data$popularity/100
 tiktok_data
 ```
-
+Normalizamos los valores del tempo, acousticness, loudness, instrumentalness:
 ```{r}
 process_tempo <- preProcess(as.data.frame(tiktok_data$tempo), method=c("range"))
 norm_scale_tempo <- predict(process_tempo, as.data.frame(tiktok_data$tempo))
 norm_scale_tempo
 
 ```
+
 
 ```{r}
 process_acousticness <- preProcess(as.data.frame(tiktok_data$acousticness), method=c("range"))
@@ -94,10 +97,20 @@ norm_scale_instrumentalness <- predict(process_instrumentalness, as.data.frame(t
 norm_scale_instrumentalness
 
 ```
-
+Sustituimos los valores normalizados en el dataset:
 ```{r}
 tiktok_data$loudness <- norm_scale_loudness[,"tiktok_data$loudness"]
 tiktok_data$acousticness <- norm_scale_acousticness[,"tiktok_data$acousticness"]
 tiktok_data$tempo <- norm_scale_tempo[,"tiktok_data$tempo"]
 tiktok_data
 ```
+Creamos cuatro columnas "dummy" de la variable categórica "genre":
+```{r}
+tiktok_data <- dummy_cols(tiktok_data, select_columns = 'genre')
+tiktok_data$genre <- NULL
+head(tiktok_data)
+
+```
+
+
+
