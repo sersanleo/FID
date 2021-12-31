@@ -1,0 +1,148 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Instalación de librerias
+
+```{r}
+#install.packages("dplyr")
+#install.packages("tidyverse")
+#install.packages("caret")
+#install.packages('fastDummies')
+#install.packages('glmnet')
+library(glmnet)
+library(readr)
+library(dplyr)
+library(tidyverse)
+library(caret)
+library(fastDummies)
+```
+
+```{r}
+tiktok <- read_csv("tiktok.csv")
+head(tiktok)
+```
+
+Eliminación de elementos duplicados del dataset
+
+```{r}
+tiktok_unique = unique(tiktok)
+summary(tiktok_unique)
+```
+
+Seleccionar columnas necesarias del dataset
+
+```{r}
+tiktok_data <- select(tiktok_unique,-"track_id",-"artist_name",-"album_id",-"playlist_id",-"playlist_name",-"duration_mins")
+head(tiktok_data)
+summary(tiktok_data)
+```
+
+Formateo de fechas - Se llama a la función changeDate mediante mutate para que cambie el string de la fecha si solo contiene el año de salida
+
+```{r}
+changeDate <- function(release_date){
+  case_when(
+    nchar(release_date)<10  ~ paste(release_date,"-01-01", sep=""),
+    nchar(release_date)>=10  ~ release_date
+  )
+}
+tiktok_data <- tiktok_data %>% mutate(release_date=changeDate(release_date))
+tiktok_data
+```
+
+```{r}
+tiktok_data <- tiktok_data %>% mutate(tempo=round(tempo, digits = 0))
+tiktok_data$popularity = tiktok_data$popularity/100
+tiktok_data
+```
+
+Normalizamos los valores del tempo, acousticness, loudness, instrumentalness:
+
+```{r}
+process_tempo <- preProcess(as.data.frame(tiktok_data$tempo), method=c("range"))
+norm_scale_tempo <- predict(process_tempo, as.data.frame(tiktok_data$tempo))
+norm_scale_tempo
+```
+
+```{r}
+process_acousticness <- preProcess(as.data.frame(tiktok_data$acousticness), method=c("range"))
+norm_scale_acousticness <- predict(process_acousticness, as.data.frame(tiktok_data$acousticness))
+norm_scale_acousticness
+```
+
+```{r}
+process_loudness <- preProcess(as.data.frame(tiktok_data$loudness), method=c("range"))
+norm_scale_loudness <- predict(process_loudness, as.data.frame(tiktok_data$loudness))
+norm_scale_loudness
+```
+
+```{r}
+process_instrumentalness <- preProcess(as.data.frame(tiktok_data$instrumentalness), method=c("range"))
+norm_scale_instrumentalness <- predict(process_instrumentalness, as.data.frame(tiktok_data$instrumentalness))
+norm_scale_instrumentalness
+```
+
+Sustituimos los valores normalizados en el dataset:
+
+```{r}
+tiktok_data$loudness <- norm_scale_loudness[,"tiktok_data$loudness"]
+tiktok_data$acousticness <- norm_scale_acousticness[,"tiktok_data$acousticness"]
+tiktok_data$tempo <- norm_scale_tempo[,"tiktok_data$tempo"]
+tiktok_data
+```
+
+Creamos cuatro columnas "dummy" de la variable categórica "genre":
+
+```{r}
+tiktok_data <- dummy_cols(tiktok_data, select_columns = 'genre')
+tiktok_data$genre <- NULL
+#head(tiktok_data)
+#tiktok_data$mode <- NULL
+#tiktok_data$instrumentalness <- NULL
+#tiktok_data$valence <- NULL
+#tiktok_data$speechiness <- NULL
+#tiktok_data$acousticness <- NULL
+#tiktok_data$liveness <- NULL
+#tiktok_data$danceability <- NULL
+#tiktok_data$energy <- NULL
+#tiktok_data$loudness <- NULL
+#tiktok_data$key <- NULL
+tiktok_data$artist_id <- NULL
+tiktok_data$release_date <- NULL
+tiktok_data$track_name <- NULL
+```
+
+```{r}
+myControl_clas <- trainControl(
+  method = "cv",
+  number = 10
+)
+```
+
+```{r}
+set.seed(12345)
+trainRowNumbers <- createDataPartition(tiktok_data$popularity, p=0.8, list=FALSE)
+traindData <- tiktok_data[trainRowNumbers,]
+testData <- tiktok_data[-trainRowNumbers,]
+```
+
+```{r}
+model_clas_glm <- train(popularity~ ., data= traindData,
+                       method="glmnet",
+                       tuneGrid = expand.grid(alpha = 0:1, lambda = seq(0.0001, 1, length =
+20)),
+                       trControl=myControl_clas)
+model_clas_glm
+```
+
+```{r}
+
+```
+
+```{r}
+predicted <- predict.train(model_clas_glm,newdata = testData)
+plot(predicted, testData$popularity, xlab="predicted", ylab="actual")
+abline(a=0,b=1)
+```
