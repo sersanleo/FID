@@ -112,5 +112,8 @@ head(tiktok_data)
 
 ```
 
-
+Finalmente, exportamos los datos procesados a un nuevo fichero csv:
+```{r}
+write.csv(tiktok_data ,"tiktok_processed.csv", row.names=FALSE)
+```
 
