@@ -3,50 +3,41 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code.
-
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*.
-
 Instalación de librerias
 
 ```{r}
 #install.packages("dplyr")
 #install.packages("tidyverse")
 #install.packages("caret")
+#install.packages('fastDummies')
+#install.packages("arules")
 library(readr)
 library(dplyr)
 library(tidyverse)
 library(caret)
+library(fastDummies)
+library(arules)
 
 ```
 
-Lectura y carga de los datos del dataset
+Preprocesamiento de los datos
 
 ```{r}
+rm(list = ls()) # borra todos los objetos cargados
+
+#Lectura y carga de los datos del dataset
 tiktok <- read_csv("tiktok.csv")
 head(tiktok)
-```
 
-Eliminación de elementos duplicados del dataset
-
-```{r}
+# Eliminación de elementos duplicados del dataset
 tiktok_unique = unique(tiktok)
-summary(tiktok_unique)
 
-```
-
-Seleccionar columnas necesarias del dataset
-
-```{r}
+#Seleccionar columnas necesarias del dataset
 tiktok_data <- select(tiktok_unique,-"track_id",-"artist_name",-"album_id",-"playlist_id",-"playlist_name",-"duration_mins")
 head(tiktok_data)
 summary(tiktok_data)
-```
 
-Formateo de fechas - Se llama a la función changeDate mediante mutate para que cambie el string de la fecha si solo contiene el año de salida
-
-```{r}
-
+#Formateo de fechas - Se llama a la función changeDate mediante mutate para que cambie el string de la fecha si solo contiene el año de salida
 changeDate <- function(release_date){
   case_when(
     nchar(release_date)<10  ~ paste(release_date,"-01-01", sep=""),
@@ -54,50 +45,80 @@ changeDate <- function(release_date){
   )
 }
 tiktok_data <- tiktok_data %>% mutate(release_date=changeDate(release_date))
-tiktok_data
 
-
-```
-
-```{r}
-
+#Normalizamos los valores de popularidad:
 tiktok_data <- tiktok_data %>% mutate(tempo=round(tempo, digits = 0))
-tiktok_data$popularity = tiktok_data$popularity/100
-tiktok_data
-```
+process_popularity <- preProcess(as.data.frame(tiktok_data$popularity), method=c("range"))
+norm_scale_popularity <- predict(process_popularity, as.data.frame(tiktok_data$popularity))
 
-```{r}
+#Normalizamos los valores del tempo, acousticness, loudness, instrumentalness:
 process_tempo <- preProcess(as.data.frame(tiktok_data$tempo), method=c("range"))
 norm_scale_tempo <- predict(process_tempo, as.data.frame(tiktok_data$tempo))
-norm_scale_tempo
 
-```
-
-```{r}
 process_acousticness <- preProcess(as.data.frame(tiktok_data$acousticness), method=c("range"))
 norm_scale_acousticness <- predict(process_acousticness, as.data.frame(tiktok_data$acousticness))
-norm_scale_acousticness
-```
-
-```{r}
 
 process_loudness <- preProcess(as.data.frame(tiktok_data$loudness), method=c("range"))
 norm_scale_loudness <- predict(process_loudness, as.data.frame(tiktok_data$loudness))
-norm_scale_loudness
 
-```
-
-```{r}
 
 process_instrumentalness <- preProcess(as.data.frame(tiktok_data$instrumentalness), method=c("range"))
 norm_scale_instrumentalness <- predict(process_instrumentalness, as.data.frame(tiktok_data$instrumentalness))
-norm_scale_instrumentalness
 
-```
-
-```{r}
+#Sustituimos los valores normalizados en el dataset:
 tiktok_data$loudness <- norm_scale_loudness[,"tiktok_data$loudness"]
 tiktok_data$acousticness <- norm_scale_acousticness[,"tiktok_data$acousticness"]
 tiktok_data$tempo <- norm_scale_tempo[,"tiktok_data$tempo"]
+tiktok_data$popularity <- norm_scale_popularity[,"tiktok_data$popularity"]
 tiktok_data
+
+#Creamos cuatro columnas "dummy" de la variable categórica "genre":
+tiktok_data <- dummy_cols(tiktok_data, select_columns = 'genre')
+tiktok_data$genre <- NULL
+head(tiktok_data)
+
+tiktok_data$id <- seq.int(nrow(tiktok_data))
+
+```
+
+Construimos una matriz con los valores de las variables y especificamos los nombres de las canciones a cada una de las filas de la matriz. Posteriormente, guardamos el vector popularidad:
+
+```{r}
+jerarquic_data<-as.matrix(tiktok_data[6:ncol(tiktok_data)-1])
+row.names(jerarquic_data)<-tiktok_data$id
+tiktok_data$popularity_class <- discretize(tiktok_data$popularity, method="interval", breaks=4, labels=FALSE)
+
+popularity_vector <- tiktok_data$popularity_class
+tiktok_data$popularity<-NULL
+#Exploramos los datos
+dim(jerarquic_data)
+colnames(jerarquic_data)
+table(popularity_vector)
+```
+
+Realizamos clustering jerárquico:
+
+```{r}
+#Escalamos los datos para que estén en la misma dimensión
+scalated_data<-scale(jerarquic_data)
+
+#Calculamos la matriz de distancias
+distance_matrix <- dist(scalated_data)
+
+#Realizamos el clustering con linkage completo
+herarquic_clustering <- hclust(distance_matrix, method="complete")
+
+#Mostramos el dendograma
+plot(herarquic_clustering, hang=-1)
+wisc_hclust_clusters<-cutree(herarquic_clustering,k=4)
+plot(wisc_hclust_clusters)
+table(wisc_hclust_clusters,popularity_vector)
+```
+
+Realizamos clustering mediante k means:
+
+```{r}
+clustering_km<-kmeans(scalated_data,centers = 2, nstart = 20)
+table(clustering_km$cluster,popularity_vector)
+
 ```
