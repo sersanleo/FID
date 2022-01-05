@@ -60,7 +60,8 @@ tiktok_data
 
 ```{r}
 tiktok_data <- tiktok_data %>% mutate(tempo=round(tempo, digits = 0))
-tiktok_data$popularity = tiktok_data$popularity/100
+process_popularity <- preProcess(as.data.frame(tiktok_data$popularity), method=c("range"))
+norm_scale_popularity <- predict(process_popularity, as.data.frame(tiktok_data$popularity))
 tiktok_data
 ```
 
@@ -96,6 +97,7 @@ Sustituimos los valores normalizados en el dataset:
 tiktok_data$loudness <- norm_scale_loudness[,"tiktok_data$loudness"]
 tiktok_data$acousticness <- norm_scale_acousticness[,"tiktok_data$acousticness"]
 tiktok_data$tempo <- norm_scale_tempo[,"tiktok_data$tempo"]
+tiktok_data$popularity <- norm_scale_popularity[,"tiktok_data$popularity"]
 tiktok_data
 ```
 
