@@ -47,8 +47,14 @@ changeDate <- function(release_date){
     nchar(release_date)<10  ~ paste(release_date,"-01-01", sep=""),
     nchar(release_date)>=10  ~ release_date
   )
+  
 }
-tiktok_data <- tiktok_data %>% mutate(release_date=changeDate(release_date))
+tiktok_data <- tiktok_data %>% mutate(release_date=changeDate(release_date))%>% mutate(release_date=as.numeric(as.POSIXct(release_date, format = "%Y-%m-%d"))/(86400*365))
+tiktok_data
+```
+
+```{r}
+tiktok_data <- tiktok_data %>% mutate(artist_id=as.numeric(factor(artist_id, levels = unique(artist_id))))
 tiktok_data
 ```
 
@@ -109,8 +115,8 @@ tiktok_data$genre <- NULL
 #tiktok_data$energy <- NULL
 #tiktok_data$loudness <- NULL
 #tiktok_data$key <- NULL
-tiktok_data$artist_id <- NULL
-tiktok_data$release_date <- NULL
+#tiktok_data$artist_id <- NULL
+#tiktok_data$release_date <- NULL
 tiktok_data$track_name <- NULL
 ```
 
@@ -123,26 +129,105 @@ myControl_clas <- trainControl(
 
 ```{r}
 set.seed(12345)
-trainRowNumbers <- createDataPartition(tiktok_data$popularity, p=0.8, list=FALSE)
+trainRowNumbers <- createDataPartition(tiktok_data$danceability, p=0.8, list=FALSE)
 traindData <- tiktok_data[trainRowNumbers,]
 testData <- tiktok_data[-trainRowNumbers,]
 ```
 
 ```{r}
-model_clas_glm <- train(popularity~ ., data= traindData,
+model_clas_glmnet_tunning <- train(danceability~ ., data= traindData,
                        method="glmnet",
                        tuneGrid = expand.grid(alpha = 0:1, lambda = seq(0.0001, 1, length =
 20)),
+                       trControl=myControl_clas)
+model_clas_glmnet_tunning
+```
+
+```{r}
+model_clas_glmnet <- train(danceability~ ., data= traindData,
+                       method="glmnet",
+                       trControl=myControl_clas)
+model_clas_glmnet
+```
+
+```{r}
+oldw<- getOption("warn")
+options(warn=-1)
+model_clas_glm <- train(danceability~ ., data= traindData,
+                       method="glm",
                        trControl=myControl_clas)
 model_clas_glm
 ```
 
 ```{r}
+model_clas_xgbtree <- train(danceability~ ., data= traindData,
+                       method="xgbTree",
+                       trControl=myControl_clas)
+model_clas_xgbtree
+```
+
+```{r}
+predicted_glm <- predict.train(model_clas_glm,newdata = testData)
+plot(predicted_glm, testData$danceability, xlab="predicted", ylab="actual")
+abline(a=0,b=1)
+```
+
+```{r}
+summary(predicted_glm)
+```
+
+```{r}
+predicted_glmnet <- predict.train(model_clas_glmnet,newdata = testData)
+plot(predicted_glmnet, testData$danceability, xlab="predicted", ylab="actual")
+abline(a=0,b=1)
+```
+
+```{r}
+summary(predicted_glmnet)
+```
+
+```{r}
+predicted_glmnet_tunning <- predict.train(model_clas_glmnet_tunning,newdata = testData)
+plot(predicted_glmnet_tunning, testData$danceability, xlab="predicted", ylab="actual")
+abline(a=0,b=1)
+```
+
+```{r}
+summary(predicted_glmnet_tunning)
+```
+
+```{r}
+predicted_xgbtree <- predict.train(model_clas_xgbtree,newdata = testData)
+plot(predicted_xgbtree, testData$danceability, xlab="predicted", ylab="actual")
+abline(a=0,b=1)
+```
+
+```{r}
+summary(predicted_xgbtree)
+```
+
+```{r}
+options(warn=oldw)
+model_list <- list(
+   glm = model_clas_glm, 
+   glmnet = model_clas_glmnet,
+   glmnet_tunning = model_clas_glmnet_tunning,
+   xgbTree = model_clas_xgbtree
+ )
+ 
+ # Pass model_list to resamples(): resamples
+ resamples <- resamples(model_list)
 
 ```
 
 ```{r}
-predicted <- predict.train(model_clas_glm,newdata = testData)
-plot(predicted, testData$popularity, xlab="predicted", ylab="actual")
-abline(a=0,b=1)
+summary(resamples)
+```
+
+```{r}
+bwplot(resamples)
+```
+
+```{r}
+dotplot(resamples)
 ```
