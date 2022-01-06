@@ -19,6 +19,8 @@ library(caret)
 library(fastDummies)
 ```
 
+Se leen los datos del csv
+
 ```{r}
 tiktok <- read_csv("tiktok.csv")
 head(tiktok)
@@ -39,7 +41,7 @@ head(tiktok_data)
 summary(tiktok_data)
 ```
 
-Formateo de fechas - Se llama a la función changeDate mediante mutate para que cambie el string de la fecha si solo contiene el año de salida
+Formateo de fechas - Se llama a la función changeDate mediante mutate para que cambie el string de la fecha si solo contiene el año de salida. Además se cambia cada fecha al número de años que hayan pasado desde el 1 de enero de 1970 hasta la misma
 
 ```{r}
 changeDate <- function(release_date){
@@ -53,10 +55,14 @@ tiktok_data <- tiktok_data %>% mutate(release_date=changeDate(release_date))%>% 
 tiktok_data
 ```
 
+Se transforma el campo de artist_id a un valor numérico, al igual que la fecha, para poder utilizar ambas columnas para obtener el modelo y realizar la predicción sin que de problemas
+
 ```{r}
 tiktok_data <- tiktok_data %>% mutate(artist_id=as.numeric(factor(artist_id, levels = unique(artist_id))))
 tiktok_data
 ```
+
+Se redondea el tiempo y se normaliza la popularidad
 
 ```{r}
 tiktok_data <- tiktok_data %>% mutate(tempo=round(tempo, digits = 0))
@@ -73,17 +79,23 @@ norm_scale_tempo <- predict(process_tempo, as.data.frame(tiktok_data$tempo))
 norm_scale_tempo
 ```
 
+Se normaliza la acousticness
+
 ```{r}
 process_acousticness <- preProcess(as.data.frame(tiktok_data$acousticness), method=c("range"))
 norm_scale_acousticness <- predict(process_acousticness, as.data.frame(tiktok_data$acousticness))
 norm_scale_acousticness
 ```
 
+Se normaliza el loudness
+
 ```{r}
 process_loudness <- preProcess(as.data.frame(tiktok_data$loudness), method=c("range"))
 norm_scale_loudness <- predict(process_loudness, as.data.frame(tiktok_data$loudness))
 norm_scale_loudness
 ```
+
+Se normaliza el instrumentalness
 
 ```{r}
 process_instrumentalness <- preProcess(as.data.frame(tiktok_data$instrumentalness), method=c("range"))
@@ -122,6 +134,8 @@ tiktok_data$genre <- NULL
 tiktok_data$track_name <- NULL
 ```
 
+Creamos un trainControl para entrenar el modelo con Caret. Se especifica que se utilice 10-fold cross validation
+
 ```{r}
 myControl_clas <- trainControl(
   method = "cv",
@@ -129,14 +143,21 @@ myControl_clas <- trainControl(
 )
 ```
 
+Se particionan los datos para obtener un conjunto de prueba y otro de entrenamiento. Se utilizará el 80% de los datos para entrenamiento. Seteamos la semilla para controlar la aleatoriedad.
+
 ```{r}
 set.seed(12345)
 trainRowNumbers <- createDataPartition(tiktok_data$danceability, p=0.8, list=FALSE)
 traindData <- tiktok_data[trainRowNumbers,]
 testData <- tiktok_data[-trainRowNumbers,]
+oldw<- getOption("warn")
+options(warn=-1)
 ```
 
+Entrenamos el modelo usando el método glmnet y especificando un tuneGrid para ver si cambia el rendimiento con respecto al que se usuaría por defecto. En todos los casos la variable a predecir será la danceability, el conjunto de datos utilizado será el de entrenamiento que se definió anteriormente y el trainControl será el anteriormente mencionado
+
 ```{r}
+set.seed(12345)
 model_clas_glmnet_tunning <- train(danceability~ ., data= traindData,
                        method="glmnet",
                        tuneGrid = expand.grid(alpha = 0:1, lambda = seq(0.0001, 1, length =
@@ -145,28 +166,37 @@ model_clas_glmnet_tunning <- train(danceability~ ., data= traindData,
 model_clas_glmnet_tunning
 ```
 
+Aquí se entrena el modelo utilizando glmnet y el tuneGrid que viene por defecto.
+
 ```{r}
+set.seed(12345)
 model_clas_glmnet <- train(danceability~ ., data= traindData,
                        method="glmnet",
                        trControl=myControl_clas)
 model_clas_glmnet
 ```
 
+En este otro caso, se entrena el modelo utilizando el método glm.
+
 ```{r}
-oldw<- getOption("warn")
-options(warn=-1)
+set.seed(12345)
 model_clas_glm <- train(danceability~ ., data= traindData,
                        method="glm",
                        trControl=myControl_clas)
 model_clas_glm
 ```
 
+En este caso, se utiliza para el entrenamiento del modelo uno de los algoritmos más populares de Kaggle, utilizando el método xgbTree
+
 ```{r}
+set.seed(12345)
 model_clas_xgbtree <- train(danceability~ ., data= traindData,
                        method="xgbTree",
                        trControl=myControl_clas)
 model_clas_xgbtree
 ```
+
+A continuación, se muestra en una gráfica en la que el eje x serán los valores predecidos por el modelo y el eje y los valores verdaderos, cómo de bien predice cada modelo. La idea es que cada punto esté lo más cerca posible de la recta.
 
 ```{r}
 predicted_glm <- predict.train(model_clas_glm,newdata = testData)
@@ -208,6 +238,8 @@ abline(a=0,b=1)
 summary(predicted_xgbtree)
 ```
 
+Finalmente, se comparan los 4 modelos que hemos obtenido, viendo las métricas que se han obtenido en cada uno tanto viendo los valores con la función summary como visualmente usando las funciones dotplot y bwplot
+
 ```{r}
 options(warn=oldw)
 model_list <- list(
@@ -217,7 +249,6 @@ model_list <- list(
    xgbTree = model_clas_xgbtree
  )
  
- # Pass model_list to resamples(): resamples
  resamples <- resamples(model_list)
 
 ```
