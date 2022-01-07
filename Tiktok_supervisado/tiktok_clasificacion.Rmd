@@ -1,0 +1,218 @@
+---
+title: "Tiktok_clasificacion"
+author: "Sergio Sánchez León"
+date: "2/1/2022"
+output: html_document
+---
+
+Primero leo los datos.
+```{r}
+tiktok = read.csv('../Tiktok_pre/tiktok_processed.csv')
+```
+
+Importo las librerías utilizadas:
+```{r, results=FALSE}
+library(rpart)
+library(rattle)
+library(RColorBrewer)
+library(arules)
+library(ROCR)
+library(caret)
+library(class)
+```
+
+Añadimos una nueva columna que clasifique los datos en muy bailables y poco bailables.
+```{r}
+tiktok$danceability_class = discretize(tiktok$danceability, method="interval", breaks=2, labels=FALSE)
+summary(tiktok$danceability_class)
+```
+
+Se eliminan las columnas que no se van a utilizar (no deben ser utilizadas para ver ella categoría de la danzabilidad de una canción):
+```{r}
+tiktok$track_name = NULL
+tiktok$artist_id = NULL
+tiktok$release_date = NULL
+tiktok$danceability = NULL
+tiktok$key = NULL
+tiktok$genre__TIKTOK = NULL
+tiktok$genre_TIKTOK.DANCE = NULL
+tiktok$genre_TIKTOK.OPM = NULL
+tiktok$genre_TIKTOK.PHILIPPINES = NULL
+```
+
+Dividimos el conjuntos de datos en dos: conjunto de entrenamiento (70%) y conjunto de prueba o "test" (30%), y se construye el árbol de decisión con la función rpart utilizando el conjunto de datos de entrenamiento:
+```{r}
+set.seed(1)
+# Esta función de caret permite crear particiones con una proporción equilibrada de los distintos valores de cada clase
+intrain<-createDataPartition(y=tiktok$danceability_class,p=0.7,list=FALSE)
+
+train<-tiktok[intrain,]
+test<-tiktok[-intrain,]
+
+set.seed(1)
+tree <- rpart(danceability_class~., train, method = "class")
+# Dibuja el árbol
+fancyRpartPlot(tree, cex=0.53)
+```
+
+```{r}
+# Predice los valores del conjunto de test
+pred <- predict(tree, test, type = "class")
+```
+
+```{r}
+# Construye la matriz de confusion
+conf <- table(test$danceability_class, pred)
+conf
+# Calcula accuracy
+acc <- sum(diag(conf)) / sum(conf)
+acc
+```
+
+```{r}
+set.seed(1)
+# Cambia la llamada a rpart para utilizar como heurística la ganancia de información
+tree_i <- rpart(danceability_class~., train, method = "class", parms = list(split = "information"))
+# Dibuja árbol
+fancyRpartPlot(tree_i, cex=0.45)
+```
+
+Se construye nuevamente la matriz de confusión y se calcula la exactitud del nuevo árbol: 
+```{r}
+# Predice los valores del conjunto de test
+pred_i <- predict(tree_i, test, type = "class")
+# Construye la matriz de confusion
+conf_i <- table(test$danceability_class, pred_i)
+conf_i
+# Calcula accuracy
+acc_i <- sum(diag(conf_i)) / sum(conf_i)
+acc_i
+```
+Vemos que este método ha resultado en una pequeña mejoría del accuracy, por lo que para continuar se usará este último.
+
+Ahora podamos el árbol de mejor accuracy para mejorar su interpretabilidad, y recalculamos:
+```{r}
+# Podamos el árbol
+pruned <- prune(tree, cp = 0.015)
+fancyRpartPlot(pruned)
+# Predice los valores del conjunto de test
+pred_pruned <- predict(pruned, test, type = "class")
+# Construye la matriz de confusion
+conf_pruned <- table(test$danceability_class, pred_pruned)
+conf_pruned
+# Calcula accuracy
+acc_pruned <- sum(diag(conf_pruned)) / sum(conf_pruned)
+acc_pruned
+```
+
+Se ve que la mejora en la interpretabilidad es sustanciosa, y sin embargo la pérdida de accuracy es muy baja, por lo que es preferible usar este árbol.
+
+
+
+Ahora vamos a predecir valores de probabilidad utilizando el modelo anterior y realizar análisis ROC.
+```{r}
+all_probs <- predict(pruned, test, type="prob")
+summary(all_probs)
+
+# Make a prediction object: predictions, usando "muy bailable" como si fuera "es bailable"
+predictions <- prediction(all_probs[,2], test$danceability_class)
+
+# Make a performance object: perf
+performances <- performance(predictions, "tpr", "fpr")
+
+# Plot this curve
+plot(performances)
+
+# AUC
+auc <- performance(predictions, "auc")
+print(auc@y.values[[1]])
+```
+AUC está dentro de [0.6, 0.75): Test regular.
+
+Ahora vamos a probar con el árbol sin podar:
+```{r}
+all_probs <- predict(tree_i, test, type="prob")
+summary(all_probs)
+
+predictions <- prediction(all_probs[,2], test$danceability_class)
+performances <- performance(predictions, "tpr", "fpr")
+
+plot(performances)
+
+auc <- performance(predictions, "auc")
+print(auc@y.values[[1]])
+```
+
+El resultado sigue estando dentro del intervalo anterior (es regular), pero ha mejorado considerablemente.
+
+Por último, se prueba con el árbol que no ha sido construido usando el método de la ganancia de información:
+```{r}
+all_probs <- predict(tree, test, type="prob")
+summary(all_probs)
+
+predictions <- prediction(all_probs[,2], test$danceability_class)
+performances <- performance(predictions, "tpr", "fpr")
+
+plot(performances)
+
+auc <- performance(predictions, "auc")
+print(auc@y.values[[1]])
+```
+
+Vemos que este consigue mejorar sensiblemente el AUC, por lo que este árbol es el que mejores resultados da cuando lo utilizamos para predecir usando las probabilidades.
+
+
+
+Ahora vamos a utilizar la técnica de clasificación kNN. Para ello, se van a dejar únicamente las variables normalizadas.
+```{r}
+knn_train = train
+knn_test = test
+
+train_labels = knn_train$danceability_class
+test_labels = knn_test$danceability_class
+  
+knn_train$duration = NULL
+knn_train$mode = NULL
+knn_train$danceability_class = NULL
+knn_test$duration = NULL
+knn_test$mode = NULL
+knn_test$danceability_class = NULL
+```
+
+
+
+```{r}
+set.seed(1)
+knn_pred <- knn(train = knn_train, test = knn_test, cl = train_labels, k=5)
+
+knn_tab <- table(test_labels, knn_pred)
+knn_tab
+
+knn_accuracy <- sum(diag(knn_tab)) / sum(knn_tab)
+print(knn_accuracy)
+```
+
+Calculamos la mejor k:
+```{r}
+set.seed(1)
+
+range <- 1:round(0.02 * nrow(knn_train))
+accs <- rep(0, length(range))
+
+for (k in range) {
+  
+  pred <- knn(knn_train, knn_test, train_labels, k = k)
+  
+  conf <- table(test_labels, pred)
+  
+  accs[k] <- sum(diag(conf)) / sum(conf)
+}
+
+# Plot the accuracies. Title of x-axis is "k".
+plot(range, accs, xlab = "k")
+
+# Calculate the best k
+which.max(accs)
+accs[which.max(accs)]
+```
+
