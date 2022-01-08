@@ -11,12 +11,16 @@ Instalación de librerias
 #install.packages("caret")
 #install.packages('fastDummies')
 #install.packages("arules")
+#install.packages("Rtsne")
+#install.packages("ggfortify")
 library(readr)
 library(dplyr)
 library(tidyverse)
 library(caret)
 library(fastDummies)
 library(arules)
+library(Rtsne)
+library(ggfortify)
 
 ```
 
@@ -84,41 +88,118 @@ tiktok_data$id <- seq.int(nrow(tiktok_data))
 Construimos una matriz con los valores de las variables y especificamos los nombres de las canciones a cada una de las filas de la matriz. Posteriormente, guardamos el vector popularidad:
 
 ```{r}
-jerarquic_data<-as.matrix(tiktok_data[6:ncol(tiktok_data)-1])
-row.names(jerarquic_data)<-tiktok_data$id
+data_matrix<-as.matrix(tiktok_data[7:ncol(tiktok_data)-1])
+row.names(data_matrix)<-tiktok_data$id
 tiktok_data$popularity_class <- discretize(tiktok_data$popularity, method="interval", breaks=4, labels=FALSE)
 
 popularity_vector <- tiktok_data$popularity_class
 tiktok_data$popularity<-NULL
 #Exploramos los datos
-dim(jerarquic_data)
-colnames(jerarquic_data)
-table(popularity_vector)
+dim(data_matrix)
+colnames(data_matrix)
+
+#Escalamos los datos para que estén en la misma dimensión
+scalated_data<-scale(data_matrix)
+
+#Calculamos la matriz de distancias
+distance_matrix <- dist(scalated_data, method="euclidean")
+
 ```
 
+Calculamos el k ideal para este conjunto de datos
+
+```{r}
+
+set.seed(123)
+k.max <- 15
+data <- scalated_data
+wss <- sapply(1:k.max, 
+              function(k){kmeans(data, k, nstart=50,iter.max = 15 )$tot.withinss})
+plot(1:k.max, wss,
+     type="b", pch = 19, frame = FALSE, 
+     xlab="Number of clusters K",
+     ylab="Total within-clusters sum of squares")
+```
+
+\
 Realizamos clustering jerárquico:
 
 ```{r}
-#Escalamos los datos para que estén en la misma dimensión
-scalated_data<-scale(jerarquic_data)
-
-#Calculamos la matriz de distancias
-distance_matrix <- dist(scalated_data)
-
 #Realizamos el clustering con linkage completo
 herarquic_clustering <- hclust(distance_matrix, method="complete")
 
 #Mostramos el dendograma
 plot(herarquic_clustering, hang=-1)
 wisc_hclust_clusters<-cutree(herarquic_clustering,k=4)
-plot(wisc_hclust_clusters)
+
 table(wisc_hclust_clusters,popularity_vector)
+
+res = external_validation(wisc_hclust_clusters,popularity_vector, method = "adjusted_rand_index", summary_stats = TRUE)
+res
 ```
 
 Realizamos clustering mediante k means:
 
 ```{r}
-clustering_km<-kmeans(scalated_data,centers = 2, nstart = 20)
+clustering_km<-kmeans(scalated_data,centers = 4, nstart = 20)
 table(clustering_km$cluster,popularity_vector)
+
+res = external_validation(clustering_km$cluster,popularity_vector, method = "adjusted_rand_index", summary_stats = TRUE)
+res
+```
+
+Comparación de ambos kmeans y jerarquico
+
+```{r}
+#install.packages("ClusterR")
+#library(ClusterR)
+table(clustering_km$cluster,wisc_hclust_clusters)
+
+```
+
+Introducción de PCA y vemos que PC12 tiene un 0.9 de variabilidad
+
+```{r}
+wisc_pca<-prcomp(data_matrix,scale. = TRUE)
+summary(wisc_pca)
+biplot(wisc_pca)
+```
+
+```{r}
+plot(wisc_pca$x[,c(1,2)],col=(popularity_vector+1),xlab = "PC1",ylab = "PC2")
+plot(wisc_pca$x[,c(1,11)],col=(popularity_vector+1),xlab = "PC1",ylab = "PC12")
+```
+
+Repetimos el clustering jerarquico y k means con PCA
+
+```{r}
+wisc_pca_hclust<-hclust(dist(wisc_pca$x[,1:11]),method = "complete")
+#
+wisc_pca_hclust_clusters<-cutree(wisc_pca_hclust,k=4)
+print("Comparamos con jerárquico antes y despues del PCA")
+table(wisc_pca_hclust_clusters,wisc_hclust_clusters)
+
+res = external_validation(wisc_pca_hclust_clusters,popularity_vector, method = "adjusted_rand_index", summary_stats = TRUE)
+res
+```
+
+Clustering kmeans con PCA
+
+```{r}
+wisc_pca_km<-kmeans(wisc_pca$x[,1:12],centers = 4,nstart = 20)
+# ..y comparamos
+table(clustering_km$cluster,wisc_pca_km$cluster)
+
+res = external_validation(wisc_pca_km$cluster,popularity_vector, method = "adjusted_rand_index", summary_stats = TRUE)
+res
+```
+
+```{r}
+#install.packages("ggfortify")
+#library(ggfortify)
+set.seed(123)
+
+autoplot(wisc_pca_km,wisc_pca)
+
 
 ```
