@@ -11,7 +11,7 @@ tiktok = read.csv('../Tiktok_pre/tiktok_processed.csv')
 ```
 
 Importo las librerías utilizadas:
-```{r, results=FALSE}
+```{r,warning=FALSE,message=FALSE}
 library(rpart)
 library(rattle)
 library(RColorBrewer)
@@ -19,6 +19,9 @@ library(arules)
 library(ROCR)
 library(caret)
 library(class)
+library(gbm)
+library(glmnet)
+library(xgboost)
 ```
 
 Añadimos una nueva columna que clasifique los datos en muy bailables y poco bailables.
@@ -27,7 +30,7 @@ tiktok$danceability_class = discretize(tiktok$danceability, method="interval", b
 summary(tiktok$danceability_class)
 ```
 
-Se eliminan las columnas que no se van a utilizar (no deben ser utilizadas para ver ella categoría de la danzabilidad de una canción):
+Se eliminan las columnas que no se van a utilizar (no deben ser utilizadas para clasificar la categoría de la danzabilidad de una canción):
 ```{r}
 tiktok$track_name = NULL
 tiktok$artist_id = NULL
@@ -216,3 +219,100 @@ which.max(accs)
 accs[which.max(accs)]
 ```
 
+
+
+
+# CARET
+
+```{r}
+tiktok_caret = merge(train, test)
+
+tiktok_caret$duration = NULL
+tiktok_caret$mode = NULL
+tiktok_caret$danceability_class = as.factor(tiktok_caret$danceability_class)
+```
+
+glm
+```{r}
+set.seed(1)
+
+fitControl = trainControl(
+  method = "cv",
+  number = 10,
+  verbose = FALSE
+)
+glmFit <- train(danceability_class~., tiktok_caret, method = "glm", trControl = fitControl)
+glmFit
+```
+
+glmnet
+```{r}
+set.seed(1)
+
+glmNetFit <-
+  train(
+    danceability_class ~ .,
+    tiktok_caret,
+    method = "glmnet",
+    trControl = fitControl
+  )
+glmNetFit
+```
+
+glmNetTuning
+```{r}
+set.seed(1)
+
+glmNetTuningFit <-
+  train(
+    danceability_class ~ .,
+    tiktok_caret,
+    method = "glmnet",
+    tuneGrid = expand.grid(alpha = 0:1, lambda = seq(0.0001, 1, length = 20)),
+    trControl = fitControl
+  )
+glmNetTuningFit
+```
+
+
+xgbTree
+```{r,warning=FALSE,message=FALSE}
+set.seed(1)
+
+xgbTreeFit <-
+  train(
+    danceability_class ~ .,
+    tiktok_caret,
+    method = "xgbTree",
+    trControl = fitControl
+  )
+```
+```{r}
+xgbTreeFit
+```
+
+
+## Comparativa de modelos
+
+Para comparar modelos Caret hace automáticamente un remuestreo para comparar distintos modelos en igualdad de condiciones. Esto lo hace con la función resamples a la que le pasamos una lista con los modelos generados anteriormente.
+
+```{r}
+model_list <- list(
+  glm = glmFit,
+  glmnet = glmNetFit,
+  glmnet_tunning = glmNetTuningFit,
+  xgbTree = xgbTreeFit
+)
+
+# Pass model_list to resamples(): resamples
+resamples <- resamples(model_list)
+```
+
+
+Finalmente, vamos a mostrar gráficamente los resultados obtenidos, con lo que de manera visual podremos decidir cuál es el mejor modelo.
+
+Para ello en la función summary escriba como parámetro de entrada la variable resample
+```{r}
+# Summarize the results
+summary(resamples)
+```
