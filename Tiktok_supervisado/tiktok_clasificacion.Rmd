@@ -30,6 +30,13 @@ tiktok$danceability_class = discretize(tiktok$danceability, method="interval", b
 summary(tiktok$danceability_class)
 ```
 
+Normalizamos duration.
+```{r}
+tiktok$duration <- predict(preProcess(as.data.frame(tiktok$duration), method =
+                                        c("range")),
+                           as.data.frame(tiktok$duration))[, "tiktok$duration"]
+```
+
 Se eliminan las columnas que no se van a utilizar (no deben ser utilizadas para clasificar la categoría de la danzabilidad de una canción):
 ```{r}
 tiktok$track_name = NULL
@@ -42,6 +49,8 @@ tiktok$genre_TIKTOK.DANCE = NULL
 tiktok$genre_TIKTOK.OPM = NULL
 tiktok$genre_TIKTOK.PHILIPPINES = NULL
 ```
+
+# ARBOLES
 
 Dividimos el conjuntos de datos en dos: conjunto de entrenamiento (70%) y conjunto de prueba o "test" (30%), y se construye el árbol de decisión con la función rpart utilizando el conjunto de datos de entrenamiento:
 ```{r}
@@ -70,8 +79,14 @@ conf
 # Calcula accuracy
 acc <- sum(diag(conf)) / sum(conf)
 acc
+# Calcula sensibility
+sen <- conf[2,2] / sum(conf[2,])
+sen
+# Calcula specificity
+spec <- conf[1,1] / sum(conf[1,])
+spec
 ```
-
+Se construye el árbol con la heurística de la ganancia de información:
 ```{r}
 set.seed(1)
 # Cambia la llamada a rpart para utilizar como heurística la ganancia de información
@@ -80,7 +95,7 @@ tree_i <- rpart(danceability_class~., train, method = "class", parms = list(spli
 fancyRpartPlot(tree_i, cex=0.45)
 ```
 
-Se construye nuevamente la matriz de confusión y se calcula la exactitud del nuevo árbol: 
+Se construye nuevamente la matriz de confusión y se calculan las medidas del nuevo árbol: 
 ```{r}
 # Predice los valores del conjunto de test
 pred_i <- predict(tree_i, test, type = "class")
@@ -90,10 +105,15 @@ conf_i
 # Calcula accuracy
 acc_i <- sum(diag(conf_i)) / sum(conf_i)
 acc_i
+# Calcula sensibility
+sen_i <- conf_i[2,2] / sum(conf_i[2,])
+sen_i
+# Calcula specificity
+spec_i <- conf_i[1,1] / sum(conf_i[1,])
+spec_i
 ```
-Vemos que este método ha resultado en una pequeña mejoría del accuracy, por lo que para continuar se usará este último.
 
-Ahora podamos el árbol de mejor accuracy para mejorar su interpretabilidad, y recalculamos:
+Ahora podamos el árbol de mejores resultados (el último) para mejorar su interpretabilidad, y recalculamos:
 ```{r}
 # Podamos el árbol
 pruned <- prune(tree, cp = 0.015)
@@ -106,13 +126,17 @@ conf_pruned
 # Calcula accuracy
 acc_pruned <- sum(diag(conf_pruned)) / sum(conf_pruned)
 acc_pruned
+# Calcula sensibility
+sen_pruned <- conf_pruned[2,2] / sum(conf_pruned[2,])
+sen_pruned
+# Calcula specificity
+spec_pruned <- conf_pruned[1,1] / sum(conf_pruned[1,])
+spec_pruned
 ```
 
-Se ve que la mejora en la interpretabilidad es sustanciosa, y sin embargo la pérdida de accuracy es muy baja, por lo que es preferible usar este árbol.
+## Análisis ROC
 
-
-
-Ahora vamos a predecir valores de probabilidad utilizando el modelo anterior y realizar análisis ROC.
+Ahora vamos a predecir valores de probabilidad utilizando el árbol anterior y realizar análisis ROC.
 ```{r}
 all_probs <- predict(pruned, test, type="prob")
 summary(all_probs)
@@ -162,11 +186,12 @@ auc <- performance(predictions, "auc")
 print(auc@y.values[[1]])
 ```
 
-Vemos que este consigue mejorar sensiblemente el AUC, por lo que este árbol es el que mejores resultados da cuando lo utilizamos para predecir usando las probabilidades.
+Vemos que este consigue mejorar sensiblemente el AUC.
 
 
+# kNN
 
-Ahora vamos a utilizar la técnica de clasificación kNN. Para ello, se van a dejar únicamente las variables normalizadas.
+Ahora vamos a utilizar la técnica de clasificación kNN.
 ```{r}
 knn_train = train
 knn_test = test
@@ -174,14 +199,9 @@ knn_test = test
 train_labels = knn_train$danceability_class
 test_labels = knn_test$danceability_class
   
-knn_train$duration = NULL
-knn_train$mode = NULL
 knn_train$danceability_class = NULL
-knn_test$duration = NULL
-knn_test$mode = NULL
 knn_test$danceability_class = NULL
 ```
-
 
 
 ```{r}
@@ -191,8 +211,15 @@ knn_pred <- knn(train = knn_train, test = knn_test, cl = train_labels, k=5)
 knn_tab <- table(test_labels, knn_pred)
 knn_tab
 
+# Calcula accuracy
 knn_accuracy <- sum(diag(knn_tab)) / sum(knn_tab)
-print(knn_accuracy)
+knn_accuracy
+# Calcula sensibility
+knn_sensibility <- knn_tab[2,2] / sum(knn_tab[2,])
+knn_sensibility
+# Calcula specificity
+knn_specificity <- knn_tab[1,1] / sum(knn_tab[1,])
+knn_specificity
 ```
 
 Calculamos la mejor k:
@@ -201,6 +228,8 @@ set.seed(1)
 
 range <- 1:round(0.02 * nrow(knn_train))
 accs <- rep(0, length(range))
+sens <- rep(0, length(range))
+specs <- rep(0, length(range))
 
 for (k in range) {
   
@@ -209,14 +238,31 @@ for (k in range) {
   conf <- table(test_labels, pred)
   
   accs[k] <- sum(diag(conf)) / sum(conf)
+  sens[k] <- conf[2,2] / sum(conf[2,])
+  specs[k] <- conf[1,1] / sum(conf[1,])
 }
 
 # Plot the accuracies. Title of x-axis is "k".
-plot(range, accs, xlab = "k")
+plot(range, accs, xlab = "k", ylab="accuracy")
+plot(range, sens, xlab = "k", ylab="sensibility")
+plot(range, specs, xlab = "k", ylab="specificity")
 
 # Calculate the best k
+print('Mejor k en función de la accuracy')
 which.max(accs)
 accs[which.max(accs)]
+sens[which.max(accs)]
+specs[which.max(accs)]
+print('Mejor k en función de la sensibilidad')
+which.max(sens)
+accs[which.max(sens)]
+sens[which.max(sens)]
+specs[which.max(sens)]
+print('Mejor k en función de la especificidad')
+which.max(specs)
+accs[which.max(specs)]
+sens[which.max(specs)]
+specs[which.max(specs)]
 ```
 
 
@@ -227,9 +273,7 @@ accs[which.max(accs)]
 ```{r}
 tiktok_caret = merge(train, test)
 
-tiktok_caret$duration = NULL
-tiktok_caret$mode = NULL
-tiktok_caret$danceability_class = as.factor(tiktok_caret$danceability_class)
+tiktok_caret$danceability_class = as.factor(sapply(tiktok_caret$danceability_class, function(x) return(if (x == 1) "Imbailable" else "Bailable")))
 ```
 
 glm
@@ -239,6 +283,9 @@ set.seed(1)
 fitControl = trainControl(
   method = "cv",
   number = 10,
+  summaryFunction = twoClassSummary,
+  classProbs = TRUE,
+  savePredictions = TRUE,
   verbose = FALSE
 )
 glmFit <- train(danceability_class~., tiktok_caret, method = "glm", trControl = fitControl)
@@ -276,7 +323,7 @@ glmNetTuningFit
 
 
 xgbTree
-```{r,warning=FALSE,message=FALSE}
+```{r,results=FALSE,warning=FALSE,message=FALSE}
 set.seed(1)
 
 xgbTreeFit <-
@@ -310,9 +357,11 @@ resamples <- resamples(model_list)
 
 
 Finalmente, vamos a mostrar gráficamente los resultados obtenidos, con lo que de manera visual podremos decidir cuál es el mejor modelo.
-
-Para ello en la función summary escriba como parámetro de entrada la variable resample
 ```{r}
 # Summarize the results
 summary(resamples)
+
+# GENIAL PARA VER COMPARATIVA DE MANERA VISUAL
+bwplot(resamples, metric = "ROC") # display univariate visualizations of the resampling distributions
+dotplot(resamples, metric="ROC")
 ```
