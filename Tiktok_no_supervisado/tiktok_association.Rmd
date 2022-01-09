@@ -1,52 +1,51 @@
 ---
-title: "R Notebook"
-output: html_notebook
+title: 'TikTok Aprendizaje no supervisado: reglas de asociación'
+output:
+  html_document:
+    df_print: paged
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code.
+# TikTok Aprendizaje no supervisado: reglas de asociación
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*.
-
-Instalación de librerias
+### Instalación de librerías
 
 ```{r}
 #install.packages("dplyr")
 #install.packages("tidyverse")
 #install.packages("caret")
+#install.packages('fastDummies')
+#install.packages('arules')
+#install.packages("ggplot2")
+#install.packages("arulesViz")
+library(arulesViz)
 library(readr)
 library(dplyr)
 library(tidyverse)
 library(caret)
-
+library(fastDummies)
+library(arules)
+library(magrittr)
+library(ggplot2)
 ```
 
-Lectura y carga de los datos del dataset
+### Preprocesado común
 
 ```{r}
+rm(list = ls()) # borra todos los objetos cargados
+
+#Lectura y carga de los datos del dataset
 tiktok <- read_csv("tiktok.csv")
 head(tiktok)
-```
 
-Eliminación de elementos duplicados del dataset
+# Eliminación de elementos duplicados del dataset
+tiktok_data <- unique(tiktok)
 
-```{r}
-tiktok_unique = unique(tiktok)
-summary(tiktok_unique)
-
-```
-
-Seleccionar columnas necesarias del dataset
-
-```{r}
-tiktok_data <- select(tiktok_unique,-"track_id",-"artist_name",-"album_id",-"playlist_id",-"playlist_name",-"duration_mins")
+#Seleccionar columnas necesarias del dataset
+tiktok_data <- select(tiktok_data,-"track_id",-"artist_name",-"album_id",-"playlist_id",-"playlist_name",-"duration_mins")
 head(tiktok_data)
 summary(tiktok_data)
-```
 
-Formateo de fechas - Se llama a la función changeDate mediante mutate para que cambie el string de la fecha si solo contiene el año de salida
-
-```{r}
-
+#Formateo de fechas - Se llama a la función changeDate mediante mutate para que cambie el string de la fecha si solo contiene el año de salida
 changeDate <- function(release_date){
   case_when(
     nchar(release_date)<10  ~ paste(release_date,"-01-01", sep=""),
@@ -54,50 +53,373 @@ changeDate <- function(release_date){
   )
 }
 tiktok_data <- tiktok_data %>% mutate(release_date=changeDate(release_date))
-tiktok_data
 
-
-```
-
-```{r}
-
+#Normalizamos los valores de popularidad:
 tiktok_data <- tiktok_data %>% mutate(tempo=round(tempo, digits = 0))
-tiktok_data$popularity = tiktok_data$popularity/100
-tiktok_data
-```
+process_popularity <- preProcess(as.data.frame(tiktok_data$popularity), method=c("range"))
+norm_scale_popularity <- predict(process_popularity, as.data.frame(tiktok_data$popularity))
 
-```{r}
+#Normalizamos los valores del tempo, acousticness, loudness, instrumentalness:
 process_tempo <- preProcess(as.data.frame(tiktok_data$tempo), method=c("range"))
 norm_scale_tempo <- predict(process_tempo, as.data.frame(tiktok_data$tempo))
-norm_scale_tempo
 
-```
-
-```{r}
 process_acousticness <- preProcess(as.data.frame(tiktok_data$acousticness), method=c("range"))
 norm_scale_acousticness <- predict(process_acousticness, as.data.frame(tiktok_data$acousticness))
-norm_scale_acousticness
-```
-
-```{r}
 
 process_loudness <- preProcess(as.data.frame(tiktok_data$loudness), method=c("range"))
 norm_scale_loudness <- predict(process_loudness, as.data.frame(tiktok_data$loudness))
-norm_scale_loudness
 
-```
-
-```{r}
 
 process_instrumentalness <- preProcess(as.data.frame(tiktok_data$instrumentalness), method=c("range"))
 norm_scale_instrumentalness <- predict(process_instrumentalness, as.data.frame(tiktok_data$instrumentalness))
-norm_scale_instrumentalness
 
-```
-
-```{r}
+#Sustituimos los valores normalizados en el dataset:
 tiktok_data$loudness <- norm_scale_loudness[,"tiktok_data$loudness"]
 tiktok_data$acousticness <- norm_scale_acousticness[,"tiktok_data$acousticness"]
 tiktok_data$tempo <- norm_scale_tempo[,"tiktok_data$tempo"]
-tiktok_data
+tiktok_data$popularity <- norm_scale_popularity[,"tiktok_data$popularity"]
+
+#Creamos cuatro columnas "dummy" de la variable categórica "genre":
+# tiktok_data <- dummy_cols(tiktok_data, select_columns = 'genre')
+# tiktok_data$genre <- NULL
+
+
 ```
+
+### Preprocesado para reglas de asociación
+
+En primer lugar, en el preprocesamiento nos hemos abstenido de crear una variable dummy a partir de la variable "genre" en el preprocesado común a otras técnicas, porque veremos que las variables binarias no dan buenos resultados al generar las reglas:
+
+Aplicamos reglas de asociación con el preprocesamiento que hemos realizado de forma común con los otros tipos de aproximaciones y podemos ver que se generan 577 reglas pero de ningún valor, ya que todas tienen un consecuente del tipo "variable" es igual a un valor entre cero o uno, cuando se trata de variables binarias, que serán cero o uno, sin dar entonces ningún tipo de información y afirmando algo obvio.
+
+```{r}
+
+rules <- apriori(tiktok_data)
+
+summary(rules)
+
+## CUIDADO: si se ejecuta la siguiente línea comienza a mostrar por pantalla las 576 reglas.
+# inspect(rules)
+
+
+```
+
+Si eliminamos la variable binaria que nos generaba tantas reglas inservibles, vemos cómo es capaz de extraer una sola regla:
+
+```{r}
+
+tiktok_data_1 <- tiktok_data
+
+# Eliminamos variables
+tiktok_data_1$mode <- NULL
+
+# Volvemos a extraer las reglas
+rules_1 <- apriori(tiktok_data_1)
+
+summary(rules_1)
+
+inspect(rules_1)
+
+```
+
+Si tratamos la variable binaria "mode" y la traducimos en TRUE y FALSE, por ejemplo, seguimos obteniendo los mismos resultados que si la elimináramos:
+
+```{r}
+
+tiktok_data$mode <- ifelse(tiktok_data$mode==1,"TRUE","FALSE")
+
+# Volvemos a extraer las reglas
+rules <- apriori(tiktok_data)
+
+summary(rules)
+
+inspect(rules)
+
+```
+
+Eliminar variables no numéricas que podrían quizá ser la causa, tampoco genera ningún resultado:
+
+```{r}
+
+tiktok_data$track_name <- NULL
+tiktok_data$artist_id <- NULL
+tiktok_data$duration <- NULL
+tiktok_data$release_date <- NULL
+
+
+# Volvemos a extraer las reglas
+rules <- apriori(tiktok_data)
+
+summary(rules)
+
+inspect(rules)
+
+
+```
+
+Finalmente, a modo de facilitarle al algoritmo a priori su trabajo, discretizamos los valores de las distintas variables, en su mayoría normalizadas, para que trabaje con un menor número de valores, estos son, intervalos, y sea capaz de obtener alguna conclusión de interés.
+
+```{r}
+
+intervals_number <- 4
+
+tiktok_data_2 <- tiktok_data
+
+tiktok_data_2$popularity = discretize(tiktok_data$popularity, method="interval", breaks=intervals_number)
+tiktok_data_2$danceability = discretize(tiktok_data$danceability, method="interval", breaks=intervals_number)
+tiktok_data_2$energy = discretize(tiktok_data$energy, method="interval", breaks=intervals_number)
+tiktok_data_2$key = discretize(tiktok_data$key, method="interval", breaks=intervals_number)
+tiktok_data_2$loudness = discretize(tiktok_data$loudness, method="interval", breaks=intervals_number)
+tiktok_data_2$speechiness = discretize(tiktok_data$speechiness, method="interval", breaks=intervals_number)
+tiktok_data_2$acousticness = discretize(tiktok_data$acousticness, method="interval", breaks=intervals_number)
+tiktok_data_2$instrumentalness = discretize(tiktok_data$instrumentalness, method="interval", breaks=intervals_number)
+tiktok_data_2$liveness = discretize(tiktok_data$liveness, method="interval", breaks=intervals_number)
+tiktok_data_2$valence = discretize(tiktok_data$valence, method="interval", breaks=intervals_number)
+tiktok_data_2$tempo = discretize(tiktok_data$tempo, method="interval", breaks=intervals_number)
+
+# Volvemos a extraer las reglas
+rules <- apriori(tiktok_data_2)
+
+summary(rules)
+
+```
+
+Como podemos observar, dividiendo las variables numéricas, los valores de cada una de ellas, en cuatro intervalos, se generan 1475 reglas que tienen buena pinta. Las vemos:
+
+```{r}
+inspect(rules[1:20])
+
+```
+
+El número de reglas generadas varía bastante en función del número de intervalos en que se dividan las variables numéricas, a razón de 1/2 a cada unidad de intervalo, es decir, con cuatro intervalos tenemos unas 1.5k reglas, con cinco intervalos, obtenemos unas 700:
+
+```{r}
+
+intervals_number <- 5
+
+tiktok_data$popularity = discretize(tiktok_data$popularity, method="interval", breaks=intervals_number)
+tiktok_data$danceability = discretize(tiktok_data$danceability, method="interval", breaks=intervals_number)
+tiktok_data$energy = discretize(tiktok_data$energy, method="interval", breaks=intervals_number)
+tiktok_data$key = discretize(tiktok_data$key, method="interval", breaks=intervals_number)
+tiktok_data$loudness = discretize(tiktok_data$loudness, method="interval", breaks=intervals_number)
+tiktok_data$speechiness = discretize(tiktok_data$speechiness, method="interval", breaks=intervals_number)
+tiktok_data$acousticness = discretize(tiktok_data$acousticness, method="interval", breaks=intervals_number)
+tiktok_data$instrumentalness = discretize(tiktok_data$instrumentalness, method="interval", breaks=intervals_number)
+tiktok_data$liveness = discretize(tiktok_data$liveness, method="interval", breaks=intervals_number)
+tiktok_data$valence = discretize(tiktok_data$valence, method="interval", breaks=intervals_number)
+tiktok_data$tempo = discretize(tiktok_data$tempo, method="interval", breaks=intervals_number)
+
+# Volvemos a extraer las reglas
+rules <- apriori(tiktok_data)
+
+summary(rules)
+
+inspect(rules[1:20])
+
+```
+
+Una vez tenemos preparados los datos y estamos cerciorados de que el algoritmo es aplicable y funciona correctamente, procedemos a estudiar los resultados que arroja y sacar algunas conclusiones a partir de ellos.
+
+### Estudio de Items
+
+Para trabajar con reglas de asociación en R, debemos trabajar con objetos de tipo "transaction", la estructura de almacenado que usa la librería arules. En nuestro caso, transformamos nuestro "dataframe" y cada transacción de ese nuevo objeto transactions, será cada una de las canciones de TikTok del dataset:
+
+```{r}
+tiktok_data_trans <- as(tiktok_data,"transactions")
+inspect(tiktok_data_trans[1:3])
+
+```
+Mediante la función "itemFrequency" podemos estudiar cuáles son los items, en nuestro caso, las variables con un valor o rango de valores concreto, que más veces se repiten (en cuántas canciones lo podemos encontrar):
+
+```{r}
+items_freq_abs <- itemFrequency(x = tiktok_data_trans, type = "absolute")
+items_freq_abs %>% sort(decreasing = TRUE) %>% head(7)
+```
+
+### Estudio de Itemsets
+
+Veamos cuáles son los conjuntos de items más frecuentes, mediante la función "apriori", usada también para extraer las reglas de asociación:
+
+```{r}
+# Obtenemos los itemsets
+itemsets <- apriori(tiktok_data_trans, list(target = "frequent itemset"))
+
+# Vemos su número y características
+summary(itemsets)
+
+# Vemos los 20 de mayor soporte
+max_supp_itemsets <- sort(itemsets, by = "support", decreasing = TRUE)[1:20]
+inspect(max_supp_itemsets)
+
+# Podemos representar estos 20 itemsets en un gráfico 
+as(max_supp_itemsets, Class = "data.frame") %>%
+  ggplot(aes(x = reorder(items, support), y = support)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Itemsets más frecuentes", x = "itemsets") +
+  theme_bw()
+
+```
+
+Como podemos observar, obtenemos un conjunto de 598 itemsets, aunque la mayoría de ellos formados por un único item, como era previsible. Veamos aquellos itemsets de más de un item, bien repitiendo la función "apriori" especificando el valor "minlen=2" o filtrando los resultados que ya teníamos:
+
+```{r}
+
+# Primera opción
+itemsets_minlen_2 <- apriori(tiktok_data_trans, list(minlen = 2, target = "frequent itemset"))
+inspect(sort(itemsets_minlen_2, by = "support", decreasing = TRUE)[1:20])
+
+# Segunda opción
+inspect(sort(itemsets[size(itemsets) > 1], decreasing = TRUE)[1:20])
+
+# Mostramos gráficamente estos resultados
+as(sort(itemsets[size(itemsets) > 1], decreasing = TRUE)[1:20], Class = "data.frame") %>%
+  ggplot(aes(x = reorder(items, support), y = support)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Itemsets más frecuentes de tamaño 2 al menos", x = "itemsets") +
+  theme_bw()
+
+```
+Los itemsets pueden ser filtrados, buscando items concretos o conjuntos de ellos:
+
+```{r}
+# Por ejemplo, podemos buscar los itemsets con la variable "mode" con valor "TRUE":
+filtered_itemsets <- arules::subset(itemsets, items %in% "mode=TRUE")[1:20]
+inspect(filtered_itemsets)
+
+# O itemsets con la variable "mode" con valor "TRUE" y "genre" con valor "TIKTOK DANCE":
+filtered_itemsets <- arules::subset(itemsets, items %ain% c("mode=TRUE","genre=TIKTOK DANCE"))
+inspect(filtered_itemsets[1:10])
+```
+
+Por último, como puede comprobarse a simple vista, hay itemsets que están contenidos en otros itemsets de orden mayor, siendo subsets de estos. Podemos conocer el número de subsets en nuestra lista de itemsets si comparamos todos con todos y sumamos la matriz de unos y ceros resultante:
+
+```{r}
+
+subset_matrix <- is.subset(x = itemsets, y = itemsets, sparse = FALSE)
+sum(subset_matrix)
+
+```
+
+Otro algoritmo usado para la extracción de itemsets frecuentes, aparte de apriori, es "Eclat" o "Equivalence Class Transformation", y se diferencian en la forma en que escanean y analizan los datos. El algoritmo "Eclat" analiza las transacciones en formato vertical en lugar de horizontal como "apriori":
+
+
+```{r}
+
+# Probamos la extracción de itemsets frecuentes con el algoritmo eclat
+itemsets_eclat <- eclat(tiktok_data_trans, list(minlen = 2))
+inspect(sort(itemsets_eclat, by = "support", decreasing = TRUE)[1:20])
+
+as(sort(itemsets_eclat, decreasing = TRUE)[1:20], Class = "data.frame") %>%
+  ggplot(aes(x = reorder(items, support), y = support)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Itemsets más frecuentes de tamaño 2 al menos", x = "itemsets") +
+  theme_bw()
+
+```
+
+Como podemos observar, obtenemos los mismos resultados que con el algoritmo "apriori".
+
+
+### Estudio de reglas de asociación
+
+La extracción de las reglas se realiza mediante el mismo proceso que el de extracción de los itemsets más frecuentes, sólo que en este caso podemos indicar también el valor mínimo de medidas como el soporte (fracción de las transacciones que contienen ambos items) o la confianza (frecuencia con la que el consecuente aparece en las transacciones que incluyen el antecedente). Tomaremos valores 0.1 y 0.7 respectivamente, y simplemente restringirán las reglas que no se nos muestran. En cualquier caso, posteriormente las ordenaremos, por lo que estos valores de filtrado, ahora mismo, no importan mucho:
+
+```{r}
+
+# De forma predeterminada, el soporte es 0.1 y la confianza es 0.8
+rules <- apriori(tiktok_data,
+                 support = 0.1,
+                 confidence = 0.7,
+                 list(target = "rules"))
+
+summary(rules)
+
+inspect(rules[1:20])
+
+plot(rules)
+
+```
+
+Aparte de estas métricas de soporte y confianza, la función "interestMeasure" ofrece otras más:
+
+```{r}
+
+# Calculamos el coverage y el lift de nuestras reglas
+
+metricas <- interestMeasure(rules, measure = c("lift", "coverage"),
+                            transactions = tiktok_data)
+head(metricas)
+
+```
+
+Para filtrar reglas de asociación, ocurre igual que al filtrar itemsets, lo podemos realizar directamente al ejecutar la función "apriori" o podemos hacerlo de forma posterior mediante un subset de las reglas. En este caso, el filtrado es más interesante porque nos va a permitir buscar reglas que nos aporten información valiosa, por ejemplo, un valor alto de popularidad de la canción, permitiendo identificar características que hagan populares a las canciones:
+
+```{r}
+
+rules <- apriori(tiktok_data,
+                 support = 0.1,
+                 confidence = 0.7,
+                 list(minlen=2, target = "rules"),
+                 appearance = list(lhs = "popularity=[0.6,0.8)"))
+
+summary(rules)
+
+inspect(sort(x = rules, decreasing = TRUE, by = "confidence"))
+
+```
+
+El problema es que si buscamos en la propia función "apriori", sólo obtiene reglas que tienen exclusivamente ese item en el itemset. Si lo hacemos a posteriori, buscará en las reglas el item aunque no sea el único que se encuentre en el itemset en que busquemos, antecedente o consecuente:
+
+```{r}
+
+rules <- apriori(tiktok_data,
+                 support = 0.1,
+                 confidence = 0.7,
+                 list(minlen=2, target = "rules"))
+
+filtered_rules <- arules::subset(x = rules,
+                          subset = lhs %in% c("popularity=[0.6,0.8)", "popularity=[0.8,1]"))
+
+summary(filtered_rules)
+
+inspect(sort(x = filtered_rules, decreasing = TRUE, by = "confidence")[1:20])
+
+```
+
+Como podemos ver, al ordenar por confianza, este valor es alto, pero las reglas tienen muy poco soporte. Ordenamos por este último criterio y veamos si podemos obtener alguna conclusión:
+
+```{r}
+
+inspect(sort(x = filtered_rules, decreasing = TRUE, by = "support")[1:20])
+
+
+```
+
+Por ejemplo, tenemos que para canciones con popularidad entre 0.6 y 0.8 se tendrá un grado de instrumentalidad de entre 0 y 0.192 con un soporte del 34% y una confianza del 95%. De la misma forma con canciones con esa popularidad se tiene que tendrán un "speechiness" de entre 0.0232 y 0.201 con un soporte del 27% y una confianza del 73%.
+
+Así, podríamos seguir caracterizando estas canciones de alta popularidad, o podríamos filtrar por otra característica que nos fuera de interés y sacar otras conclusiones que nos aporten valor.
+
+Esta es la representación de las reglas filtradas contraponiendo confianza y soporte:
+
+```{r}
+plot(filtered_rules, control=list(main="Reglas para alta popularidad"))
+```
+
+También podemos representar un pequeño grupo de ellas en forma de grafo:
+
+```{r}
+plot(sort(x = filtered_rules, decreasing = TRUE, by = "support")[1:20], control=list(main="Reglas para alta popularidad"), method="graph")
+```
+
+
+
+
+
+### Bibliografía
+- https://rpubs.com/Joaquin_AR/397172
+- https://www.youtube.com/watch?v=ZyuNlQ_9uIY
+
+
