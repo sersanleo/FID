@@ -13,6 +13,7 @@ Instalación de librerias
 #install.packages("arules")
 #install.packages("Rtsne")
 #install.packages("ggfortify")
+#install.packages("ClusterR")
 library(readr)
 library(dplyr)
 library(tidyverse)
@@ -21,7 +22,7 @@ library(fastDummies)
 library(arules)
 library(Rtsne)
 library(ggfortify)
-
+library(ClusterR)
 ```
 
 Preprocesamiento de los datos
@@ -117,8 +118,8 @@ wss <- sapply(1:k.max,
               function(k){kmeans(data, k, nstart=50,iter.max = 15 )$tot.withinss})
 plot(1:k.max, wss,
      type="b", pch = 19, frame = FALSE, 
-     xlab="Number of clusters K",
-     ylab="Total within-clusters sum of squares")
+     xlab="K",
+     ylab="Total within-clusters sum of squares (WSS)")
 ```
 
 \
@@ -151,8 +152,6 @@ res
 Comparación de ambos kmeans y jerarquico
 
 ```{r}
-#install.packages("ClusterR")
-#library(ClusterR)
 table(clustering_km$cluster,wisc_hclust_clusters)
 
 ```
@@ -176,8 +175,10 @@ Repetimos el clustering jerarquico y k means con PCA
 wisc_pca_hclust<-hclust(dist(wisc_pca$x[,1:11]),method = "complete")
 #
 wisc_pca_hclust_clusters<-cutree(wisc_pca_hclust,k=4)
-print("Comparamos con jerárquico antes y despues del PCA")
-table(wisc_pca_hclust_clusters,wisc_hclust_clusters)
+
+plot(wisc_pca_hclust, hang=-1)
+
+table(wisc_pca_hclust_clusters,popularity_vector)
 
 res = external_validation(wisc_pca_hclust_clusters,popularity_vector, method = "adjusted_rand_index", summary_stats = TRUE)
 res
@@ -188,15 +189,17 @@ Clustering kmeans con PCA
 ```{r}
 wisc_pca_km<-kmeans(wisc_pca$x[,1:12],centers = 4,nstart = 20)
 # ..y comparamos
-table(clustering_km$cluster,wisc_pca_km$cluster)
+table(clustering_km$cluster,popularity_vector)
 
 res = external_validation(wisc_pca_km$cluster,popularity_vector, method = "adjusted_rand_index", summary_stats = TRUE)
 res
+autoplot(wisc_pca_km,wisc_pca)
+
 ```
 
 ```{r}
 #install.packages("ggfortify")
-#library(ggfortify)
+library(ggfortify)
 set.seed(123)
 
 autoplot(wisc_pca_km,wisc_pca)
